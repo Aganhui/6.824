@@ -43,6 +43,7 @@ func HandlerMapPhaseFinish(c *Coordinator, e Event) error {
 	fmt.Printf("\n\n map phase finish! \n\n")
 	intermediate := []KeyValueAuto{}
 	for _, task := range c.Phases[StrPhaseMap].Tasks {
+		task.Lock()
 		for _, item := range task.Output.Value.([]interface{}) {
 			fmt.Printf("%#v", item.(map[string]interface{}))
 			newitem := item.(map[string]interface{})
@@ -51,9 +52,11 @@ func HandlerMapPhaseFinish(c *Coordinator, e Event) error {
 				Value: newitem["Value"],
 			})
 		}
+		task.Unlock()
 	}
 	sort.Sort(ByKey(intermediate))
 	i := 0
+	p := c.Phases[StrPhaseReduce]
 	for i < len(intermediate) {
 		j := i + 1
 		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
@@ -75,13 +78,17 @@ func HandlerMapPhaseFinish(c *Coordinator, e Event) error {
 			Output:     KeyValueAuto{},
 			UpdateTime: GetUnixTimeNow(),
 		}
+		p.Lock()
 		c.Phases[StrPhaseReduce].Tasknum += 1
 		c.Phases[StrPhaseReduce].Tasks[task.TaskID] = &task
 		c.Phases[StrPhaseReduce].Queue.Pending.Push(task.TaskID)
+		p.Unlock()
 
 		i = j
 	}
+	p.Lock()
 	c.Phases[StrPhaseReduce].Status = StrStatusRunning
+	p.Unlock()
 
 	return nil
 }
@@ -90,7 +97,9 @@ func HandlerReducePhaseFinish(c *Coordinator, e Event) error {
 	oname := "mr-out-0"
 	ofile, _ := os.Create(oname)
 	for _, task := range c.Phases[StrPhaseReduce].Tasks {
+		task.Lock()
 		kv := task.Output
+		task.Unlock()
 		fmt.Fprintf(ofile, "%v %v\n", kv.Key, kv.Value)
 	}
 	c.EventMap[StrEventCoordinatorFinished].EventChan <- Event{}
@@ -98,12 +107,18 @@ func HandlerReducePhaseFinish(c *Coordinator, e Event) error {
 }
 
 func HandlerCoordinatorFinish(c *Coordinator, e Event) error {
+	c.Lock()
 	c.Status = StrStatusFinished
+	c.Unlock()
 	return nil
 }
 
 func HandlerCoordinatorStart(c *Coordinator, e Event) error {
+	c.Lock()
 	c.Status = StrStatusRunning
+	c.Unlock()
+	c.Phases[StrPhaseMap].Lock()
 	c.Phases[StrPhaseMap].Status = StrStatusRunning
+	c.Phases[StrPhaseMap].Unlock()
 	return nil
 }

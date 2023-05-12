@@ -23,16 +23,20 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 func (c *Coordinator) selectTask() (task *Task, err error) {
 	for _, phase := range c.Phases {
+		phase.Lock()
 		// fmt.Printf("phase %#v", phase)
 		if phase.Status != StrStatusRunning {
+			phase.Unlock()
 			continue
 		}
 		if phase.Queue.Pending.IsImpty() {
+			phase.Unlock()
 			continue
 		}
 		taskid := phase.Queue.Pending.Pop()
 		phase.Queue.Running[taskid] = 1
 		task = phase.Tasks[taskid]
+		phase.Unlock()
 		return task, nil
 	}
 	return nil, ErrNoAvailableTask
@@ -46,9 +50,11 @@ func (c *Coordinator) GetTask(args *GetTaskRequest, reply *GetTaskResponse) erro
 	// fmt.Printf("\n%#v", task.Input.Value)
 	fmt.Printf("\n gettask: %s", task.TaskID)
 
+	task.Lock()
 	task.Status = StrStatusRunning
 	task.StartTime = time.Now().Unix()
 	task.UpdateTime = task.StartTime
+	task.Unlock()
 
 	reply.Task = *task
 	return nil
@@ -59,6 +65,7 @@ func (c *Coordinator) BackTask(args *BackTaskRequest, reply *BackTaskResponse) e
 	t := p.Tasks[args.Task.TaskID]
 	fmt.Printf("\n backtask: %s", t.TaskID)
 
+	t.Lock()
 	t.Status = args.Task.Status
 	t.Output = args.Task.Output
 	t.UpdateTime = time.Now().Unix()
@@ -68,6 +75,7 @@ func (c *Coordinator) BackTask(args *BackTaskRequest, reply *BackTaskResponse) e
 	} else if t.Status == StrStatusFailed { //ygh: 如何更好地管理事件？
 		// p.Queue.Failed
 	}
+	t.Unlock()
 	return nil
 }
 
@@ -81,16 +89,22 @@ func (c *Coordinator) ManageCoorStatus() {
 	for {
 		tmpState = StrStatusRunning
 		for _, phase := range c.Phases {
+			phase.Lock()
 			if phase.Status == StrStatusFailed {
 				tmpState = StrStatusFailed
+				phase.Unlock()
 				break
 			}
 			if phase.Status == StrStatusRunning {
 				tmpState = StrStatusRunning
+				phase.Unlock()
 				break
 			}
+			phase.Unlock()
 		}
+		c.Lock()
 		c.Status = tmpState
+		c.Unlock()
 		if tmpState != StrStatusRunning {
 			break
 		}
@@ -101,9 +115,12 @@ func (c *Coordinator) ManageCoorStatus() {
 func (c *Coordinator) ManagePhaseStatus() {
 	for {
 		for _, phase := range c.Phases {
+			phase.Lock()
 			fmt.Printf("\n%s: %s(%d/%d)\n", phase.Name, phase.Status, phase.Queue.Finished.Len(), phase.Tasknum)
+			phase.Unlock()
 			switch phase.Status {
 			case StrStatusRunning:
+				phase.Lock()
 				if phase.Queue.Finished.Len() == phase.Tasknum {
 					phase.Status = StrStatusFinished
 					if phase.Name == StrPhaseMap { //ygh: 触发Event，是否有更好的触发方式
@@ -115,10 +132,13 @@ func (c *Coordinator) ManagePhaseStatus() {
 						c.EventMap[StrEventPhaseReduceFinished].EventChan <- Event{}
 					}
 				}
+				phase.Unlock()
 			case StrStatusNoready:
+				phase.Lock()
 				if phase.Queue.Pending.Len()+len(phase.Queue.Running) > 0 {
 					phase.Status = StrStatusRunning
 				}
+				phase.Unlock()
 			}
 		}
 		time.Sleep(MonitorSleepInterval)
@@ -129,26 +149,40 @@ func (c *Coordinator) ManageTaskStatus() {
 	for {
 		for _, phase := range c.Phases {
 			for _, task := range phase.Tasks {
+				task.Lock()
 				switch task.Status {
 				case StrStatusRunning: //ygh: 暂时只对正在运行的超时任务做管理
 					if GetUnixTimeNow()-task.StartTime > int64(TaskTimeout.Seconds()) { //ygh: 超时
+						phase.Lock()
 						delete(phase.Queue.Running, task.TaskID)
+						phase.Unlock()
 						if num, ok := phase.Queue.Failed[task.TaskID]; ok { //ygh: 多次失败
+							phase.Lock()
 							phase.Queue.Failed[task.TaskID] = num + 1
+							phase.Unlock()
 							if num+1 < TaskRetryTimes { //ygh: 失败次数未超过limit
 								task.Status = StrStatusPending
+								phase.Lock()
 								phase.Queue.Pending.Push(task.TaskID)
+								phase.Unlock()
 							} else { //ygh: 失败次数超过limit
 								task.Status = StrStatusFailed
+								phase.Lock()
 								phase.Status = StrStatusFailed //ygh: 此时认为phase和整个任务都失败
+								phase.Unlock()
+								c.Lock()
 								c.Status = StrStatusFailed
+								c.Unlock()
 							}
 						} else { //ygh: 第一次失败
 							task.Status = StrStatusPending
+							phase.Lock()
 							phase.Queue.Pending.Push(task.TaskID)
+							phase.Unlock()
 						}
 					}
 				}
+				task.Unlock()
 			}
 		}
 		time.Sleep(MonitorSleepInterval)
@@ -236,9 +270,11 @@ func (c *Coordinator) Done() bool {
 	// 		ret = false
 	// 	}
 	// }
+	c.Lock()
 	if c.Status == StrStatusRunning {
 		ret = false
 	}
+	c.Unlock()
 	return ret
 }
 

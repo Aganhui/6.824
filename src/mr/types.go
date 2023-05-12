@@ -44,6 +44,7 @@ type KeyValueAuto struct {
 }
 
 type Task struct {
+	sync.Mutex
 	TaskID    string `json:"task_id"`
 	PhaseName string `json:phase_name`
 
@@ -65,6 +66,7 @@ type StatusQueue struct {
 }
 
 type Phase struct {
+	sync.Mutex
 	Name    string
 	Status  string
 	Tasknum int
@@ -75,6 +77,7 @@ type Phase struct {
 type Coordinator struct {
 	// Your definitions here.
 	// Phases []*Phase
+	sync.Mutex
 	Phases   map[string]*Phase
 	Status   string
 	EventMap map[string]EventHandler
