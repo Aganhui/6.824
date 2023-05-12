@@ -33,16 +33,24 @@ func GetMapKeyValueList(files []string) ([]KeyValueAuto, error) {
 		file.Close()
 		kvlist = append(kvlist, KeyValueAuto{
 			Key:   filename,
-			Value: content,
+			Value: string(content),
 		})
 	}
 	return kvlist, nil
 }
 
 func HandlerMapPhaseFinish(c *Coordinator, e Event) error {
+	fmt.Printf("\n\n map phase finish! \n\n")
 	intermediate := []KeyValueAuto{}
 	for _, task := range c.Phases[StrPhaseMap].Tasks {
-		intermediate = append(intermediate, task.Output)
+		for _, item := range task.Output.Value.([]interface{}) {
+			fmt.Printf("%#v", item.(map[string]interface{}))
+			newitem := item.(map[string]interface{})
+			intermediate = append(intermediate, KeyValueAuto{
+				Key:   newitem["Key"].(string),
+				Value: newitem["Value"],
+			})
+		}
 	}
 	sort.Sort(ByKey(intermediate))
 	i := 0
@@ -73,6 +81,7 @@ func HandlerMapPhaseFinish(c *Coordinator, e Event) error {
 
 		i = j
 	}
+	c.Phases[StrPhaseReduce].Status = StrStatusRunning
 
 	return nil
 }

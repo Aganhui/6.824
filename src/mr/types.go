@@ -7,9 +7,9 @@ import (
 
 const (
 	TaskRetryTimes       = 3
-	TaskTimeout          = 60 * 10 //ygh: 超时时间为10分钟
-	MonitorSleepInterval = 5
-	MonitorHeartInterval = 30
+	TaskTimeout          = time.Second * 60 * 5 //ygh: 超时时间为10分钟
+	MonitorSleepInterval = 5 * time.Second
+	MonitorHeartInterval = 30 * time.Second
 )
 
 const (
@@ -44,17 +44,17 @@ type KeyValueAuto struct {
 }
 
 type Task struct {
-	TaskID    string
-	PhaseName string
+	TaskID    string `json:"task_id"`
+	PhaseName string `json:phase_name`
 
-	Status string
+	Status string `json:"status"`
 
-	StartTime  int64
-	FinishTime int64
-	UpdateTime int64
+	StartTime  int64 `json:"start_time"`
+	FinishTime int64 `json:"finish_time"`
+	UpdateTime int64 `json:"update_time"`
 
-	Input  KeyValueAuto
-	Output KeyValueAuto
+	Input  KeyValueAuto `json:"input"`
+	Output KeyValueAuto `json:"output"`
 }
 
 type StatusQueue struct {
